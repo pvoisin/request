@@ -1014,7 +1014,11 @@ Request.prototype.onRequestResponse = function (response) {
     responseContent.on('close', function () {self.emit('close')})
 
     if (self.callback) {
-      self.readResponseBody(response)
+      self.readResponseBody(response, function(body) {
+        response.body = body
+        debug('emitting complete', self.uri.href)
+        self.emit('complete', response, response.body)
+      })
     }
     //if no callback
     else {
@@ -1030,11 +1034,12 @@ Request.prototype.onRequestResponse = function (response) {
   debug('finish init function', self.uri.href)
 }
 
-Request.prototype.readResponseBody = function (response) {
+Request.prototype.readResponseBody = function (response, callback) {
   var self = this
   debug('reading response\'s body')
   var buffer = bl()
     , strings = []
+    , body
 
   self.on('data', function (chunk) {
     if (Buffer.isBuffer(chunk)) {
@@ -1053,11 +1058,11 @@ Request.prototype.readResponseBody = function (response) {
     if (buffer.length) {
       debug('has body', self.uri.href, buffer.length)
       if (self.encoding === null) {
-        // response.body = buffer
+        // body = buffer
         // can't move to this until https://github.com/rvagg/bl/issues/13
-        response.body = buffer.slice()
+        body = buffer.slice()
       } else {
-        response.body = buffer.toString(self.encoding)
+        body = buffer.toString(self.encoding)
       }
     } else if (strings.length) {
       // The UTF8 BOM [0xEF,0xBB,0xBF] is converted to [0xFE,0xFF] in the JS UTC16/UCS2 representation.
@@ -1065,21 +1070,20 @@ Request.prototype.readResponseBody = function (response) {
       if (self.encoding === 'utf8' && strings[0].length > 0 && strings[0][0] === '\uFEFF') {
         strings[0] = strings[0].substring(1)
       }
-      response.body = strings.join('')
+      body = strings.join('')
     }
 
     if (self._json) {
       try {
-        response.body = JSON.parse(response.body, self._jsonReviver)
+        body = JSON.parse(response.body, self._jsonReviver)
       } catch (e) {
         debug('invalid JSON received', self.uri.href)
       }
     }
-    debug('emitting complete', self.uri.href)
-    if (typeof response.body === 'undefined' && !self._json) {
-      response.body = self.encoding === null ? new Buffer(0) : ''
+    if (typeof body === 'undefined' && !self._json) {
+      body = self.encoding === null ? new Buffer(0) : ''
     }
-    self.emit('complete', response, response.body)
+    callback && callback(body)
   })
 }
 
